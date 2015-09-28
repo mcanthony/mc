@@ -891,6 +891,31 @@ mc_search__run_regex (mc_search_t * lc_mc_search, const void *user_data,
             virtual_pos = current_pos;
         }
 
+#ifdef SEARCH_TYPE_GLIB
+        /* Glib doesn't like invalid UTF-8 so sanitize it first: ticket 3449.
+           Be careful: there might be embedded NULs in the strings. */
+        if (lc_mc_search->is_utf8)
+        {
+            char *p = lc_mc_search->regex_buffer->str;
+            char *end = p + lc_mc_search->regex_buffer->len;
+            while (p < end)
+            {
+                gunichar c = g_utf8_get_char_validated (p, -1);
+                if (c != (gunichar) (-1) && c != (gunichar) (-2))
+                {
+                    p = g_utf8_next_char (p);
+                }
+                else
+                {
+                    /* U+FFFD would be the proper choice, but then we'd have to
+                       create a new string and maintain mapping between old and new offsets.
+                       So rather do a byte by byte replacement. */
+                    *p++ = '\0';
+                }
+            }
+        }
+#endif /* SEARCH_TYPE_GLIB */
+
         switch (mc_search__regex_found_cond (lc_mc_search, lc_mc_search->regex_buffer))
         {
         case COND__FOUND_OK:
