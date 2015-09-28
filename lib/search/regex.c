@@ -712,6 +712,44 @@ mc_search_regex__process_escape_sequence (GString * dest_str, const char *from, 
 
 /* --------------------------------------------------------------------------------------------- */
 /**
+ * Sanitize regexp before processing.
+ * @param lc_mc_search  regexp container
+ */
+
+static void
+mc_search__sanitize_if_needed (mc_search_t * lc_mc_search)
+{
+#ifndef SEARCH_TYPE_GLIB
+    (void) lc_mc_search;
+
+#else /* SEARCH_TYPE_GLIB */
+    /* Glib doesn't like invalid UTF-8 so sanitize it first: ticket 3449.
+       Be careful: there might be embedded NULs in the strings. */
+    if (lc_mc_search->is_utf8)
+    {
+        char *p = lc_mc_search->regex_buffer->str;
+        char *end = p + lc_mc_search->regex_buffer->len;
+        while (p < end)
+        {
+            gunichar c = g_utf8_get_char_validated (p, -1);
+            if (c != (gunichar) (-1) && c != (gunichar) (-2))
+            {
+                p = g_utf8_next_char (p);
+            }
+            else
+            {
+                /* U+FFFD would be the proper choice, but then we'd have to
+                   create a new string and maintain mapping between old and new offsets.
+                   So rather do a byte by byte replacement. */
+                *p++ = '\0';
+            }
+        }
+    }
+#endif /* SEARCH_TYPE_GLIB */
+}
+
+/* --------------------------------------------------------------------------------------------- */
+/**
  * Get regex flags for compilation of expressions.
  * @param charset   the charset
  *
@@ -891,30 +929,7 @@ mc_search__run_regex (mc_search_t * lc_mc_search, const void *user_data,
             virtual_pos = current_pos;
         }
 
-#ifdef SEARCH_TYPE_GLIB
-        /* Glib doesn't like invalid UTF-8 so sanitize it first: ticket 3449.
-           Be careful: there might be embedded NULs in the strings. */
-        if (lc_mc_search->is_utf8)
-        {
-            char *p = lc_mc_search->regex_buffer->str;
-            char *end = p + lc_mc_search->regex_buffer->len;
-            while (p < end)
-            {
-                gunichar c = g_utf8_get_char_validated (p, -1);
-                if (c != (gunichar) (-1) && c != (gunichar) (-2))
-                {
-                    p = g_utf8_next_char (p);
-                }
-                else
-                {
-                    /* U+FFFD would be the proper choice, but then we'd have to
-                       create a new string and maintain mapping between old and new offsets.
-                       So rather do a byte by byte replacement. */
-                    *p++ = '\0';
-                }
-            }
-        }
-#endif /* SEARCH_TYPE_GLIB */
+        mc_search__sanitize_if_needed (lc_mc_search);
 
         switch (mc_search__regex_found_cond (lc_mc_search, lc_mc_search->regex_buffer))
         {
